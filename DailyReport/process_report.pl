@@ -2,6 +2,7 @@
 use strict;
 use Account;
 use Position;
+use ParseMail;
 use DBI;
 use Date::Calc qw (:all);
 
@@ -15,6 +16,7 @@ my $dateHash = {};
 my $reportDate;
 my $yesterdayEquity = 0;
 my $weekBeginDate = "";
+
 
 sub assignPortfolio {
     my $positionHash = shift;
@@ -279,22 +281,24 @@ sub getWeekBeginEquity {
 }
 ################################  MAIN ###################################
 
+my $mailfilename = ParseMail::getFileFromMail();
 
-if ($#ARGV != -1) {
-    $filename = shift @ARGV;
+if ($mailfilename ne "") {
+    $filename = $mailfilename;
 } else {
-    print "Please ensure the file named \"EOD (??).csv\" is located in \"$userprofile\\Google Drive\\AFT - Daily Report\\\".  Once the file is located there, enter the version number \n";
-    print "If there is no version number, rename the file to conform to that format \n";
-    print "Enter version number: ";
-    my $filenumber = <STDIN>;
-    chomp($filenumber);
-    $filename =~ s/NN/$filenumber/;
+    if ($#ARGV != -1) {
+        $filename = shift @ARGV;
+    } else {
+        print "Please ensure the file named \"EOD (??).csv\" is located in \"$userprofile\\Google Drive\\AFT - Daily Report\\\".  Once the file is located there, enter the version number \n";
+        print "If there is no version number, rename the file to conform to that format \n";
+        print "Enter version number: ";
+        my $filenumber = <STDIN>;
+        chomp($filenumber);
+        $filename =~ s/NN/$filenumber/;
+    }
 }
-
 print STDERR "filename is $filename\n";
 open(INPUTFILE, "<", $filename) or die "Could not open file";
-
-
 
 
 while (my $row = <INPUTFILE>) {
@@ -323,6 +327,7 @@ while (my $row = <INPUTFILE>) {
         }
         if ($fields[1] eq "TRNT") {
             readSection(\&processTrades,$positionHash);
+            
         }
         if ($fields[1] eq "UNBC") {
             readSection(\&processCommissions,$positionHash);   
