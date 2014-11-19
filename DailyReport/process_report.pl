@@ -17,6 +17,21 @@ my $reportDate;
 my $yesterdayEquity = 0;
 my $weekBeginDate = "";
 
+my $dbh; 
+
+sub connectToDB { 
+    my $dsn = 'DBI:mysql:daily_report;host=AFT-INT-1;port=3306';
+    $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
+    return;
+}
+
+sub disconnectFromDB {
+    $dbh->disconnect;
+}
+
+
+
+
 
 sub assignPortfolio {
     my $positionHash = shift;
@@ -159,10 +174,7 @@ sub writeOutputToFile {
 
 sub storeReport {
 
-    my $dateHash = shift;    
-    my $dsn = 'DBI:mysql:daily_report';
-    my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
-
+    my $dateHash = shift;     
     #my $sql = "select * from report";
     for my $date (keys %{$dateHash}) {
         my $sql = "insert into report values (\"" . $date . "\"," . $dateHash->{$date}->totalEquity . "," . $dateHash->{$date}->equityChange . "," . $dateHash->{$date}->weekEquityChange() . ");"; 
@@ -170,16 +182,12 @@ sub storeReport {
         #print "inserting rows: $sql\n";
         $sth->execute or warn "SQL Error: $DBI::errstr\n";   
      }
-    $dbh->disconnect;
 }
 
 sub storePositions {
 
     my $positionHash = shift;
-    my $reportDate = shift;
-    my $dsn = 'DBI:mysql:daily_report';
-    my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
-
+    my $reportDate = shift; 
     #my $sql = "select * from report";
     for my $symbol (keys %{$positionHash}) {
         my $sql = "insert into position values (\"" . $reportDate . "\",\"" . $positionHash->{$symbol}->symbol . "\"," .
@@ -192,15 +200,12 @@ sub storePositions {
         print STDERR "inserting rows\n";
         $sth->execute or warn "SQL Error: $DBI::errstr\n";   
      }
-    $dbh->disconnect
 }
 
 sub getWeekMTM {
     my $positionHash = shift;
     my $reportDate = shift;
     my $yesterday = calcYesterday($reportDate);
-    my $dsn = 'DBI:mysql:daily_report';
-    my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
     foreach my $symbol (keys %{$positionHash}) {        
         my $sql = "SELECT mtm_pnl_week " .
         "FROM position " .
@@ -213,7 +218,6 @@ sub getWeekMTM {
         #print STDERR "starting mtmPnLWeek is " . $positionHash->{$symbol}->mtmPnLWeek . " \n";
         $positionHash->{$symbol}->mtmPnLWeek($positionHash->{$symbol}->mtmPnL + $beginPnL);  
     }
-    $dbh->disconnect;
     return;
 }
 
@@ -229,8 +233,6 @@ sub getYesterdaysPositions {
     my $positionHash = shift;
     my $weekBeginDate = shift;
     my $reportDate = shift;
-    my $dsn = 'DBI:mysql:daily_report';
-    my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
     my $yesterday = calcYesterday($reportDate);
     my $sql = "select symbol,portfolio,quantity,mark_price,mtm_pnl,mtm_pnl_week from position where position_date = \"" . $yesterday . "\"";
     my $sth = $dbh->prepare($sql);
@@ -254,15 +256,12 @@ sub getYesterdaysPositions {
             $positionHash->{$position->symbol} = $position;
         }
     }
-     $dbh->disconnect;
-    return;
+     return;
 }
 
 
 sub getWeekBeginEquity {
     my $weekBeginDate = shift;
-    my $dsn = 'DBI:mysql:daily_report';
-    my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
     my $sql = "SELECT total_equity FROM report WHERE report_date in (select max(report_date) from report where report_date < \"$weekBeginDate\")";
     my $sth  = $dbh->prepare($sql);
     $sth->execute();
@@ -276,12 +275,17 @@ sub getWeekBeginEquity {
     $sth->finish;
     #print STDERR "Sql is $sql\n";
     #print STDERR "starting Equity is $beginingEquity \n"; 
-    $dbh->disconnect;
     return $beginingEquity;
 }
 ################################  MAIN ###################################
 
 my $mailfilename = ParseMail::getFileFromMail();
+if (!defined($mailfilename)) {
+    print "could not connect to e-mail.\n";
+    $mailfilename = "";
+}
+
+my $filenumber = 0;
 
 if ($mailfilename ne "") {
     $filename = $mailfilename;
@@ -292,13 +296,16 @@ if ($mailfilename ne "") {
         print "Please ensure the file named \"EOD (??).csv\" is located in \"$userprofile\\Google Drive\\AFT - Daily Report\\\".  Once the file is located there, enter the version number \n";
         print "If there is no version number, rename the file to conform to that format \n";
         print "Enter version number: ";
-        my $filenumber = <STDIN>;
+        $filenumber = <STDIN>;
         chomp($filenumber);
         $filename =~ s/NN/$filenumber/;
     }
 }
 print STDERR "filename is $filename\n";
 open(INPUTFILE, "<", $filename) or die "Could not open file";
+
+
+connectToDB();
 
 
 while (my $row = <INPUTFILE>) {
@@ -349,6 +356,8 @@ storePositions($positionHash,$reportDate);
 
 flush STDERR;
 flush STDOUT;
+
+disconnectFromDB();
 
 print "Press ENTER to end\n";
 my $dummy = <>;

@@ -4,6 +4,7 @@ use warnings;
 
 use Mail::IMAPClient;
 use Email::MIME;
+use IO::Socket::SSL;
 use POSIX qw /strftime/;
 my $today = strftime "%Y%m%d", localtime $^T;
 my $msg;
@@ -34,16 +35,46 @@ sub saveFile {
 
 sub getFileFromMail {
   
+  my $server = 'imap.gmail.com';
+  my $port = 993;
+  my $username = 'rssmith2g@gmail.com';
+  my $password = 'buttons1';
+  my $ssl = 1;
+  
   # Connect to IMAP server
-  my $client = Mail::IMAPClient->new(
-  Server   => 'imap.gmail.com',
-  User     => 'rssmith2g@gmail.com',
-  Password => 'buttons1',
-  Port     => 993,
-  Ssl      =>  1,
-  )
-  or die "Cannot connect through IMAPClient: $!";
-
+  my $client = Mail::IMAPClient->new();
+  #Server   => 'imap.gmail.com',
+  #User     => 'rssmith2g@gmail.com',
+  #Password => 'buttons1',
+  #Port     => 993,
+  #Ssl      =>  1,
+  #)
+  
+  if (!defined($client)) {
+    print "Could not create client \n";
+    return undef;
+  }
+  print "Created Client\n";
+  
+  $client->Server($server);
+  $client->Port($port);
+  $client->Ssl($ssl);
+  $client->User($username);
+  $client->Password($password);
+  
+  my $connectOK = $client->connect();
+  print "LastError is: " . $client->LastError() . "\n";
+  
+  my @results = $client->Escaped_history;
+  print @results;
+  
+  if (!defined($connectOK)) {
+    return undef;
+  }
+  
+  
+  
+  
   # List folders on remote server (see if all is ok)
   if ( $client->IsAuthenticated() ) {
     my @folderList = @{$client->folders};
