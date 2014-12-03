@@ -41,3 +41,8 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Other stuff I know shows up often
+*.csv
+*.log
+
