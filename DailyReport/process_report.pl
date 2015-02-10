@@ -19,6 +19,12 @@ my $weekBeginDate = "";
 
 my $dbh; 
 
+my @testfileArray = qw ( ./20141215--57-flex.140325.EOD.20141212.20141212.csv ./20141215--26-flex.140325.EOD.20141024.20141024.csv ./20141215--27-flex.140325.EOD.20141027.20141027.csv
+        ./20141215--28-flex.140325.EOD.20141028.20141028.csv ./20141215--29-flex.140325.EOD.20141029.20141029.csv ./20141215--30-flex.140325.EOD.20141028.20141028.csv );
+
+
+
+
 sub connectToDB { 
     my $dsn = 'DBI:mysql:daily_report;host=AFT-INT-1;port=3306';
     $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
@@ -39,6 +45,9 @@ sub assignPortfolio {
     foreach my $symbol (keys %{$positionHash}) {
         if (length($symbol) == 4) {
             $positionHash->{$symbol}->portfolio("HEDGE");
+        }
+        elsif (length($symbol) == 3) {
+                $positionHash->{$symbol}->portfolio("OTHER");
         } else {
             if ($positionHash->{$symbol}->quantity > 0 ) {
                 $positionHash->{$symbol}->portfolio("TAIL_RISK_INSURANCE");
@@ -65,10 +74,16 @@ sub readSection {
         chomp($row);
         $row =~ s/"//g;
         @fields = split /,/,$row;
-        if  ($fields[0] eq "EOS" )
+        if ($fields[0] eq "EOS" && $fields[1] eq "CTRN") {
+            if ($fields[2] ne "--") {
+                &{$processingFunc}(\@fields,$objectHash);    
+            }
+            $done = 1;
+        }
+        elsif  ($fields[0] eq "EOS" )
         {
             $done = 1;
-        } else {
+        } elsif ($fields[1] ne "CTRN") {
             if ($fields[0] eq "HEADER") {
                 @headerFields = split /,/,$row;
             } else {
@@ -101,10 +116,14 @@ sub processEquity {
     #print "week begin date is $weekBeginDate \n";
     $reportDate = ($$fields[2]);
     my $tmpAmt = sprintf "%0.2f", $$fields[3];
+    
+    $yesterdayEquity = getYesterdaysEquity($reportDate);
+    
     $account->totalEquity($tmpAmt);
     if ($yesterdayEquity == 0 ) {
         $yesterdayEquity = $account->totalEquity;
-    } else {
+    }
+    else {
         $tmpAmt = sprintf("%0.2f",$account->totalEquity - $yesterdayEquity);
         $account->equityChange($tmpAmt);   
     }
@@ -126,6 +145,16 @@ sub processMarkToMarket {
     my $pHash = shift;
     my $position = Position->new();
     $position->symbol($$fields[2]);
+    $position->mtmPnL($$fields[3]);
+    $pHash->{$position->symbol} = $position;
+    return;
+}
+
+sub processFees {
+    my $fields = shift;
+    my $pHash = shift;
+    my $position = Position->new();
+    $position->symbol("FEE");
     $position->mtmPnL($$fields[3]);
     $pHash->{$position->symbol} = $position;
     return;
@@ -177,7 +206,7 @@ sub storeReport {
     my $dateHash = shift;     
     #my $sql = "select * from report";
     for my $date (keys %{$dateHash}) {
-        my $sql = "insert into report values (\"" . $date . "\"," . $dateHash->{$date}->totalEquity . "," . $dateHash->{$date}->equityChange . "," . $dateHash->{$date}->weekEquityChange() . ");"; 
+        my $sql = "insert into report values (\"" . $date . "\"," . $dateHash->{$date}->totalEquity . "," . $dateHash->{$date}->equityChange . "," . $dateHash->{$date}->weekEquityChange() . ") on duplicate key update total_equity = values(total_equity), equity_change = values(equity_change);"; 
         my $sth = $dbh->prepare($sql);
         #print "inserting rows: $sql\n";
         $sth->execute or warn "SQL Error: $DBI::errstr\n";   
@@ -259,6 +288,25 @@ sub getYesterdaysPositions {
      return;
 }
 
+sub getYesterdaysEquity {
+    my $reportDate = shift;
+    my $yesterday = calcYesterday($reportDate);
+    my $sql = "SELECT total_equity FROM report WHERE report_date in (select max(report_date) from report where report_date <= \" $yesterday \")";
+    my $sth  = $dbh->prepare($sql);
+    $sth->execute();
+    my @results = $sth->fetchrow_array;
+    my $yesterdaysEquity;
+    if (!defined($results[0])) {
+        $yesterdayEquity = 0;
+    } else {
+       $yesterdaysEquity = $results[0];
+    }
+    $sth->finish;
+    #print STDERR "Sql is $sql\n";
+    #print STDERR "starting Equity is $beginingEquity \n"; 
+    return $yesterdaysEquity;
+}
+
 
 sub getWeekBeginEquity {
     my $weekBeginDate = shift;
@@ -277,89 +325,104 @@ sub getWeekBeginEquity {
     #print STDERR "starting Equity is $beginingEquity \n"; 
     return $beginingEquity;
 }
+
 ################################  MAIN ###################################
 
-my $mailfilename = ParseMail::getFileFromMail();
-if (!defined($mailfilename)) {
-    print "could not connect to e-mail.\n";
-    $mailfilename = "";
-}
+    connectToDB();
+    
+#commented out for testing
+    my $mailfileArray = ParseMail::getFileFromMail();
+    # This is now a reference to an array
 
-my $filenumber = 0;
-
-if ($mailfilename ne "") {
-    $filename = $mailfilename;
-} else {
-    if ($#ARGV != -1) {
-        $filename = shift @ARGV;
-    } else {
-        print "Please ensure the file named \"EOD (??).csv\" is located in \"$userprofile\\Google Drive\\AFT - Daily Report\\\".  Once the file is located there, enter the version number \n";
-        print "If there is no version number, rename the file to conform to that format \n";
-        print "Enter version number: ";
-        $filenumber = <STDIN>;
-        chomp($filenumber);
-        $filename =~ s/NN/$filenumber/;
+    if (!defined($mailfileArray)) {
+       print "could not connect to e-mail.\n";
+       # $mailfilename = "";
     }
-}
-print STDERR "filename is $filename\n";
-open(INPUTFILE, "<", $filename) or die "Could not open file";
+    
+    my @newFileArray = sort { my ($aFile,$bFile); $a =~ /([0-9]{8})\.([0-9]{8}).csv/; $aFile = $1; $b =~ /([0-9]{8})\.([0-9]{8}).csv/; $bFile = $1; $aFile <=> $bFile } @$mailfileArray;
+    
+    foreach my $mailfilename (@newFileArray) {
+
+#    foreach my $mailfilename (@testfileArray) {
+        my $filenumber = 0;
+        $positionHash = {};
+
+        if ($mailfilename ne "") {
+            $filename = $mailfilename;
+        } else {
+            if ($#ARGV != -1) {
+                $filename = shift @ARGV;
+            } else {
+                print "Please ensure the file named \"EOD (??).csv\" is located in \"$userprofile\\Google Drive\\AFT - Daily Report\\\".  Once the file is located there, enter the version number \n";
+                print "If there is no version number, rename the file to conform to that format \n";
+                print "Enter version number: ";
+                $filenumber = <STDIN>;
+                chomp($filenumber);
+                $filename =~ s/NN/$filenumber/;
+            }   
+        }
+        print STDERR "filename is $filename\n";
+        #my $fileName = "EOD (1) copy.csv";
+        open(INPUTFILE, "<", $filename) or die "Could not open file";
 
 
-connectToDB();
-
-
-while (my $row = <INPUTFILE>) {
-    #print $row;
-    $row =~ s/"//g;
-    my @fields = split /,/ , $row;
-    if ($fields[0] eq "BOF") {
-        #print STDERR "begining of file\n";
-    }
-    if ($fields[0] eq "BOS") {
-        # beginning of a section
-        if ($fields[1] eq "EQUT") {
-            # this is the begining of the Equity section
-            readSection(\&processEquity, $dateHash);
-        }    
-        if ($fields[1] eq "MTMP") {
-            readSection(\&processMarkToMarket,$positionHash);
-            my $totalMTMPnL = 0;
-            foreach my $symbol (keys %{$positionHash}) {
-                $totalMTMPnL = sprintf("%0.2f",$totalMTMPnL + $positionHash->{$symbol}->mtmPnL());
+        while (my $row = <INPUTFILE>) {
+            #print $row;
+            $row =~ s/"//g;
+            my @fields = split /,/ , $row;
+            if ($fields[0] eq "BOF") {
+                #print STDERR "begining of file\n";
             }
-            #print STDERR "total MTM PnL is $totalMTMPnL \n";
+            if ($fields[0] eq "BOS") {
+                # beginning of a section
+                if ($fields[1] eq "EQUT") {
+                    # this is the begining of the Equity section
+                    readSection(\&processEquity, $dateHash);
+                }    
+                if ($fields[1] eq "MTMP") {
+                    readSection(\&processMarkToMarket,$positionHash);
+                    my $totalMTMPnL = 0;
+                    foreach my $symbol (keys %{$positionHash}) {
+                        $totalMTMPnL = sprintf("%0.2f",$totalMTMPnL + $positionHash->{$symbol}->mtmPnL());
+                    }
+                    #print STDERR "total MTM PnL is $totalMTMPnL \n";
+                }
+                if ($fields[1] eq "POST") {
+                    readSection(\&processPositions, $positionHash);
+                }
+                if ($fields[1] eq "TRNT") {
+                    readSection(\&processTrades,$positionHash);
+                    
+                }
+                if ($fields[1] eq "UNBC") {
+                    readSection(\&processCommissions,$positionHash);   
+                }
+                if ($fields[1] eq "CTRN") {
+                    readSection(\&processFees,$positionHash);   
+                }
+            }
         }
-        if ($fields[1] eq "POST") {
-            readSection(\&processPositions, $positionHash);
-        }
-        if ($fields[1] eq "TRNT") {
-            readSection(\&processTrades,$positionHash);
-            
-        }
-        if ($fields[1] eq "UNBC") {
-            readSection(\&processCommissions,$positionHash);   
-        }
+    close INPUTFILE;
+
+    # Now you have the begining day of the week.
+    # first get the weekly change
+    
+    $dateHash->{$reportDate}->weekBeginEquity(getWeekBeginEquity($weekBeginDate));
+    storeReport($dateHash);
+
+    assignPortfolio($positionHash);
+    getWeekMTM($positionHash,$reportDate);  
+    getYesterdaysPositions($positionHash,$weekBeginDate,$reportDate);
+    storePositions($positionHash,$reportDate);
+
     }
-}
-close INPUTFILE;
 
-# Now you have the begining day of the week.
-# first get the weekly change
 
-$dateHash->{$reportDate}->weekBeginEquity(getWeekBeginEquity($weekBeginDate));
-storeReport($dateHash);
+    flush STDERR;
+    flush STDOUT;   
 
-assignPortfolio($positionHash);
-getWeekMTM($positionHash,$reportDate);
-getYesterdaysPositions($positionHash,$weekBeginDate,$reportDate);
-storePositions($positionHash,$reportDate);
+    disconnectFromDB();
 
-flush STDERR;
-flush STDOUT;
-
-disconnectFromDB();
-
-print "Press ENTER to end\n";
-my $dummy = <>;
-
+    print "Press ENTER to end\n";
+    my $dummy = <>;
 

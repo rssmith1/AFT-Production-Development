@@ -4,8 +4,8 @@ use DBI;
 use warnings;
 #!/usr/bin/perl -w use DBI;
 
-
-my $dsn = 'DBI:mysql:daily_report';
+# "dbi:$driver:database=$db;host=$host;port=$port"
+my $dsn = 'DBI:mysql:database=daily_report;host=AFT-INT-1;port=3306';
 my $dbh = DBI->connect($dsn,'root','aftmysql') or die "Connection Error: $DBI::errstr\n";
 my $sql = "select * from report";
 my $sth = $dbh->prepare($sql);
