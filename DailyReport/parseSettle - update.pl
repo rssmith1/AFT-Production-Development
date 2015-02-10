@@ -235,7 +235,7 @@ sub storeSettlements {
 
 ####################  MAIN  #################
     #my $inputFilename = "settle.csv";
-    my $inputFilename = "data_06022015.txt";
+    my $inputFilename = "data_09022015.txt";
     open(INPUTFILE, "<$inputFilename") or die "could not open file $inputFilename";
     my $firstLine = 0;
     
