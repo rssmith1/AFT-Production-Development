@@ -190,7 +190,7 @@ sub storePortfolioData {
 }
 
 ####################  MAIN  #################
-    my $inputFilename = "analytics_2015-02-04_123839.txt";
+    my $inputFilename = "analytics_2015-02-11_120225.txt";
     #my $inputFilename = "orc-portfoliostats.log";
     open(INPUTFILE, "<$inputFilename") or die "could not open file $inputFilename";
 
@@ -207,14 +207,14 @@ sub storePortfolioData {
     connectToDB();
     $platId = getPlatformId($platName);
     #$algoName = "Orc algo";  
-    $reportDate = "2015-02-05";
+    $reportDate = "2015-02-11";
 
     if ($platName eq "IB") { 
         $_ = <INPUTFILE>;
     
-        $algoName = "IB algo";
-        $algoVersion = "1.0";
-        $algoVersionDesc = "IB Algo version 1";
+        $algoName = "IB algo 2";
+        $algoVersion = "0.3";
+        $algoVersionDesc = "IB Algo version 0.3";
         $datasetDesc = "IB-".$inputFilename;
   
         my $algoId = storeAlgoDetails($platId, $algoName);
